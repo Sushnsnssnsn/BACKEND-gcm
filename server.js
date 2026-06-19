@@ -11,7 +11,7 @@ const app = express();
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://sushnsnssnsn.github.io/gcm-baixada-santista';
 
 app.use(cors({
-  origin: FRONTEND_URL,
+  origin: 'https://sushnsnssnsn.github.io',
   credentials: true
 }));
 
