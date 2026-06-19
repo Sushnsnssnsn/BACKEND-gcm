@@ -129,17 +129,16 @@ app.get('/auth/discord/callback', async (req, res) => {
     }
 
     const payload = {
-      user: {
-        id: user.id,
-        username: user.username,
-        global_name: user.global_name,
-        avatar: user.avatar
-      },
-      member,
-      inServer,
-      hasRole,
-      createdAt: Date.now()
-    };
+  user: {
+    id: user.id,
+    username: user.username,
+    global_name: user.global_name,
+    avatar: user.avatar
+  },
+  inServer,
+  hasRole,
+  createdAt: Date.now()
+};
 
     const token = createToken(payload);
 
