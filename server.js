@@ -23,7 +23,22 @@ app.get('/', (req, res) => {
 });
 
 app.post('/formulario', async (req, res) => {
-  try {
+  try {    // Verifica se está logado
+    const sessionId = req.cookies?.gcm_session;
+    const session = sessions?.get(sessionId);
+
+    if (!session) {
+      return res.status(401).json({
+        erro: 'Você precisa fazer login para realizar o concurso.'
+      });
+    }
+
+    // Bloqueia quem já possui o cargo
+    if (session.hasRole) {
+      return res.status(403).json({
+        erro: 'Membros da GCM não podem realizar o concurso.'
+      });
+    }
     const { nome, discord, idade, motivo, nota, status } = req.body;
 
     if (!nome || !discord || !idade || nota === undefined || !status) {
