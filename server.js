@@ -20,12 +20,14 @@ app.use(cors({
 app.use(express.json());
 
 const enviosFormulario = new Map();
+const registrosPrisao = [];
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
 });
 
 const CHANNEL_ID = process.env.CHANNEL_ID || '1515488788871118929';
+const PRISAO_CHANNEL_ID = process.env.PRISAO_CHANNEL_ID || CHANNEL_ID;
 const GUILD_ID = process.env.GUILD_ID || '1452744726808625318';
 const OFICIAL_ROLE_ID = process.env.OFICIAL_ROLE_ID || '1452744727278649368';
 const DISCORD_INVITE = process.env.DISCORD_INVITE || 'https://discord.gg/YXnn9ZrBZe';
@@ -311,6 +313,132 @@ app.post('/formulario', async (req, res) => {
     });
   }
 });
+
+
+// LISTAR REGISTROS DE PRISÃO
+app.get('/prisoes', (req, res) => {
+  const session = getSession(req);
+
+  if (!session) {
+    return res.status(401).json({
+      sucesso: false,
+      mensagem: 'Você precisa fazer login para acessar os registros de prisão.'
+    });
+  }
+
+  if (!session.hasRole) {
+    return res.status(403).json({
+      sucesso: false,
+      mensagem: 'Você não tem permissão para acessar os registros de prisão.'
+    });
+  }
+
+  return res.json({
+    sucesso: true,
+    registros: registrosPrisao
+  });
+});
+
+// REGISTRAR PRISÃO
+app.post('/prisoes', async (req, res) => {
+  try {
+    const session = getSession(req);
+
+    if (!session) {
+      return res.status(401).json({
+        sucesso: false,
+        mensagem: 'Você precisa fazer login para registrar uma prisão.'
+      });
+    }
+
+    if (!session.inServer) {
+      return res.status(403).json({
+        sucesso: false,
+        mensagem: 'Você precisa estar no servidor da GCM para registrar uma prisão.'
+      });
+    }
+
+    if (!session.hasRole) {
+      return res.status(403).json({
+        sucesso: false,
+        mensagem: 'Você não tem permissão para registrar prisão.'
+      });
+    }
+
+    const {
+      nomePreso,
+      rgPreso,
+      crime,
+      pena,
+      local,
+      descricao,
+      imagem
+    } = req.body;
+
+    if (!nomePreso || !crime || !local || !descricao) {
+      return res.status(400).json({
+        sucesso: false,
+        mensagem: 'Preencha nome do preso, crime, local e descrição.'
+      });
+    }
+
+    const responsavel = session.user.global_name || session.user.username || 'Usuário desconhecido';
+
+    const registro = {
+      id: registrosPrisao.length + 1,
+      nomePreso: String(nomePreso),
+      rgPreso: rgPreso ? String(rgPreso) : 'Não informado',
+      crime: String(crime),
+      pena: pena ? String(pena) : 'Não informado',
+      local: String(local),
+      descricao: String(descricao),
+      imagem: imagem ? String(imagem) : '',
+      responsavel,
+      responsavelId: session.user.id,
+      data: new Date().toISOString()
+    };
+
+    registrosPrisao.unshift(registro);
+
+    const canal = await client.channels.fetch(PRISAO_CHANNEL_ID);
+
+    if (canal) {
+      const embed = new EmbedBuilder()
+        .setTitle('🚔 Novo Registro de Prisão')
+        .setColor(0x3498db)
+        .addFields(
+          { name: 'Preso', value: registro.nomePreso, inline: true },
+          { name: 'RG/ID', value: registro.rgPreso, inline: true },
+          { name: 'Crime', value: registro.crime, inline: true },
+          { name: 'Pena', value: registro.pena, inline: true },
+          { name: 'Local', value: registro.local, inline: true },
+          { name: 'Responsável', value: `${registro.responsavel} (${registro.responsavelId})`, inline: false },
+          { name: 'Descrição', value: registro.descricao }
+        )
+        .setFooter({ text: 'Sistema de Prisões - GCM Baixada Santista' })
+        .setTimestamp();
+
+      if (registro.imagem.startsWith('http://') || registro.imagem.startsWith('https://')) {
+        embed.setImage(registro.imagem);
+      }
+
+      await canal.send({ embeds: [embed] });
+    }
+
+    return res.json({
+      sucesso: true,
+      mensagem: 'Prisão registrada com sucesso.',
+      registro
+    });
+  } catch (erro) {
+    console.error('Erro ao registrar prisão:', erro);
+    return res.status(500).json({
+      sucesso: false,
+      mensagem: 'Erro interno ao registrar prisão.'
+    });
+  }
+});
+
 
 const PORT = process.env.PORT || 3000;
 
