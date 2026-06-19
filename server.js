@@ -3,22 +3,21 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
-const crypto = require('crypto');
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 
 const app = express();
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://sushnsnssnsn.github.io/gcm-baixada-santista';
+const FRONTEND_ORIGIN = 'https://sushnsnssnsn.github.io';
 
 app.use(cors({
-  origin: 'https://sushnsnssnsn.github.io',
+  origin: FRONTEND_ORIGIN,
   credentials: true
 }));
 
 app.use(express.json());
 app.use(cookieParser());
 
-const sessions = new Map();
 const enviosFormulario = new Map();
 
 const client = new Client({
@@ -31,9 +30,46 @@ const OFICIAL_ROLE_ID = process.env.OFICIAL_ROLE_ID || '1452744727278649368';
 const DISCORD_INVITE = process.env.DISCORD_INVITE || 'https://discord.gg/YXnn9ZrBZe';
 const FORMULARIO_COOLDOWN_HORAS = Number(process.env.FORMULARIO_COOLDOWN_HORAS || 24);
 
+// 10 anos logado, ou até clicar em Sair
+const COOKIE_MAX_AGE = 1000 * 60 * 60 * 24 * 365 * 10;
+
 client.once('ready', () => {
   console.log(`Bot conectado como ${client.user.tag}`);
 });
+
+function encodeSession(session) {
+  return Buffer.from(JSON.stringify(session), 'utf8').toString('base64url');
+}
+
+function decodeSession(value) {
+  try {
+    if (!value) return null;
+    return JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function getSession(req) {
+  return decodeSession(req.cookies?.gcm_session);
+}
+
+function setSession(res, session) {
+  res.cookie('gcm_session', encodeSession(session), {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'none',
+    maxAge: COOKIE_MAX_AGE
+  });
+}
+
+function clearSession(res) {
+  res.clearCookie('gcm_session', {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'none'
+  });
+}
 
 app.get('/', (req, res) => {
   res.send('Backend da GCM Baixada Santista online.');
@@ -98,22 +134,20 @@ app.get('/auth/discord/callback', async (req, res) => {
       hasRole = Array.isArray(member.roles) && member.roles.includes(OFICIAL_ROLE_ID);
     }
 
-    const sessionId = crypto.randomBytes(32).toString('hex');
-
-    sessions.set(sessionId, {
-      user,
+    const session = {
+      user: {
+        id: user.id,
+        username: user.username,
+        global_name: user.global_name,
+        avatar: user.avatar
+      },
       member,
       inServer,
       hasRole,
       createdAt: Date.now()
-    });
+    };
 
-    res.cookie('gcm_session', sessionId, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'none',
-      maxAge: 1000 * 60 * 60 * 24 * 30
-    });
+    setSession(res, session);
 
     return res.redirect(`${FRONTEND_URL}/painel.html`);
   } catch (erro) {
@@ -123,8 +157,7 @@ app.get('/auth/discord/callback', async (req, res) => {
 });
 
 app.get('/me', (req, res) => {
-  const sessionId = req.cookies?.gcm_session;
-  const session = sessions.get(sessionId);
+  const session = getSession(req);
 
   if (!session) {
     return res.status(401).json({ logged: false });
@@ -132,12 +165,7 @@ app.get('/me', (req, res) => {
 
   return res.json({
     logged: true,
-    user: {
-      id: session.user.id,
-      username: session.user.username,
-      global_name: session.user.global_name,
-      avatar: session.user.avatar
-    },
+    user: session.user,
     inServer: session.inServer,
     hasRole: session.hasRole,
     invite: DISCORD_INVITE
@@ -145,25 +173,13 @@ app.get('/me', (req, res) => {
 });
 
 app.post('/logout', (req, res) => {
-  const sessionId = req.cookies?.gcm_session;
-
-  if (sessionId) {
-    sessions.delete(sessionId);
-  }
-
-  res.clearCookie('gcm_session', {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'none'
-  });
-
+  clearSession(res);
   return res.json({ sucesso: true });
 });
 
 // VERIFICA SE A PESSOA PODE ABRIR O FORMULÁRIO
 app.get('/pode-enviar-formulario', (req, res) => {
-  const sessionId = req.cookies?.gcm_session;
-  const session = sessions.get(sessionId);
+  const session = getSession(req);
 
   if (!session) {
     return res.status(401).json({
@@ -215,8 +231,7 @@ app.get('/pode-enviar-formulario', (req, res) => {
 // ENVIO DO FORMULÁRIO
 app.post('/formulario', async (req, res) => {
   try {
-    const sessionId = req.cookies?.gcm_session;
-    const session = sessions.get(sessionId);
+    const session = getSession(req);
 
     if (!session) {
       return res.status(401).json({

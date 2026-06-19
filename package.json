@@ -1,7 +1,7 @@
 {
   "name": "backend-gcm-discord",
   "version": "1.0.0",
-  "description": "Backend para enviar formulários do site da GCM para canal do Discord com login via Discord",
+  "description": "Backend GCM com login persistente via Discord",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
