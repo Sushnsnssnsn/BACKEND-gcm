@@ -2,21 +2,22 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
-const cookieParser = require('cookie-parser');
+const crypto = require('crypto');
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 
 const app = express();
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://sushnsnssnsn.github.io/gcm-baixada-santista';
 const FRONTEND_ORIGIN = 'https://sushnsnssnsn.github.io';
+const SESSION_SECRET = process.env.SESSION_SECRET || 'troque-essa-chave-no-render';
 
 app.use(cors({
   origin: FRONTEND_ORIGIN,
-  credentials: true
+  credentials: false,
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json());
-app.use(cookieParser());
 
 const enviosFormulario = new Map();
 
@@ -30,52 +31,45 @@ const OFICIAL_ROLE_ID = process.env.OFICIAL_ROLE_ID || '1452744727278649368';
 const DISCORD_INVITE = process.env.DISCORD_INVITE || 'https://discord.gg/YXnn9ZrBZe';
 const FORMULARIO_COOLDOWN_HORAS = Number(process.env.FORMULARIO_COOLDOWN_HORAS || 24);
 
-// 10 anos logado, ou até clicar em Sair
-const COOKIE_MAX_AGE = 1000 * 60 * 60 * 24 * 365 * 10;
-
 client.once('ready', () => {
   console.log(`Bot conectado como ${client.user.tag}`);
 });
 
-function encodeSession(session) {
-  return Buffer.from(JSON.stringify(session), 'utf8').toString('base64url');
+function b64url(input) {
+  return Buffer.from(input).toString('base64url');
 }
 
-function decodeSession(value) {
+function sign(data) {
+  return crypto.createHmac('sha256', SESSION_SECRET).update(data).digest('base64url');
+}
+
+function createToken(payload) {
+  const body = b64url(JSON.stringify(payload));
+  const signature = sign(body);
+  return `${body}.${signature}`;
+}
+
+function verifyToken(token) {
   try {
-    if (!value) return null;
-    return JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+    if (!token || !token.includes('.')) return null;
+    const [body, signature] = token.split('.');
+    if (sign(body) !== signature) return null;
+    return JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
   } catch {
     return null;
   }
 }
 
 function getSession(req) {
-  return decodeSession(req.cookies?.gcm_session);
-}
-
-function setSession(res, session) {
-  res.cookie('gcm_session', encodeSession(session), {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'none',
-    maxAge: COOKIE_MAX_AGE
-  });
-}
-
-function clearSession(res) {
-  res.clearCookie('gcm_session', {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'none'
-  });
+  const auth = req.headers.authorization || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+  return verifyToken(token);
 }
 
 app.get('/', (req, res) => {
   res.send('Backend da GCM Baixada Santista online.');
 });
 
-// LOGIN COM DISCORD
 app.get('/auth/discord', (req, res) => {
   const params = new URLSearchParams({
     client_id: process.env.DISCORD_CLIENT_ID,
@@ -134,7 +128,7 @@ app.get('/auth/discord/callback', async (req, res) => {
       hasRole = Array.isArray(member.roles) && member.roles.includes(OFICIAL_ROLE_ID);
     }
 
-    const session = {
+    const payload = {
       user: {
         id: user.id,
         username: user.username,
@@ -147,9 +141,9 @@ app.get('/auth/discord/callback', async (req, res) => {
       createdAt: Date.now()
     };
 
-    setSession(res, session);
+    const token = createToken(payload);
 
-    return res.redirect(`${FRONTEND_URL}/painel.html`);
+    return res.redirect(`${FRONTEND_URL}/painel.html?token=${encodeURIComponent(token)}`);
   } catch (erro) {
     console.error('Erro no callback Discord:', erro);
     return res.redirect(`${FRONTEND_URL}/login.html?erro=interno`);
@@ -173,11 +167,9 @@ app.get('/me', (req, res) => {
 });
 
 app.post('/logout', (req, res) => {
-  clearSession(res);
   return res.json({ sucesso: true });
 });
 
-// VERIFICA SE A PESSOA PODE ABRIR O FORMULÁRIO
 app.get('/pode-enviar-formulario', (req, res) => {
   const session = getSession(req);
 
@@ -228,7 +220,6 @@ app.get('/pode-enviar-formulario', (req, res) => {
   });
 });
 
-// ENVIO DO FORMULÁRIO
 app.post('/formulario', async (req, res) => {
   try {
     const session = getSession(req);

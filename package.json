@@ -1,13 +1,12 @@
 {
   "name": "backend-gcm-discord",
   "version": "1.0.0",
-  "description": "Backend GCM com login persistente via Discord",
+  "description": "Backend GCM com login por token persistente",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
     "discord.js": "^14.17.3",
     "dotenv": "^16.4.7",
