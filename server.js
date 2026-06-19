@@ -143,7 +143,7 @@ app.get('/auth/discord/callback', async (req, res) => {
 
     const token = createToken(payload);
 
-    return res.redirect(`${FRONTEND_URL}/painel.html?token=${encodeURIComponent(token)}`);
+    return res.redirect(`${FRONTEND_URL}/index.html?token=${encodeURIComponent(token)}`);
   } catch (erro) {
     console.error('Erro no callback Discord:', erro);
     return res.redirect(`${FRONTEND_URL}/login.html?erro=interno`);
