@@ -23,7 +23,9 @@ app.get('/', (req, res) => {
 });
 
 app.post('/formulario', async (req, res) => {
-  try {    // Verifica se está logado
+  try {    
+    
+    // Verifica se está logado
     const sessionId = req.cookies?.gcm_session;
     const session = sessions?.get(sessionId);
 
