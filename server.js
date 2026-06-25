@@ -447,3 +447,51 @@ client.login(process.env.DISCORD_TOKEN);
 app.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
 });
+app.post('/viaturas/assumir', async (req, res) => {
+  try {
+    const canal = await client.channels.fetch(process.env.VIATURA_CHANNEL_ID);
+
+    const {
+      tipo,
+      prefixo,
+      viatura,
+      armas,
+      pessoa1,
+      pessoa2,
+      pessoa3,
+      pessoa4,
+      radio,
+      modulador,
+      area
+    } = req.body;
+
+    const agora = new Date().toLocaleString('pt-BR');
+
+    await canal.send(`
+🚔 **VIATURA ASSUMIDA**
+
+📅 **Data/Hora:** ${agora}
+
+👮 **Tipo:** ${tipo}
+🚓 **Prefixo:** ${prefixo}
+🚗 **Viatura:** ${viatura}
+📡 **Rádio:** ${radio}
+🎙️ **Modulação:** ${modulador}
+
+👮 **1º Integrante / Encarregado:** ${pessoa1}
+🚘 **2º Integrante / Motorista:** ${pessoa2}
+👮 **3º Integrante:** ${pessoa3 || 'Não informado'}
+👮 **4º Integrante:** ${pessoa4 || 'Não informado'}
+
+🔫 **Armas utilizadas:** ${armas || 'Não informado'}
+📍 **Área:** ${area || 'Não se aplica'}
+
+✅ **Status:** Em patrulhamento
+    `);
+
+    res.json({ mensagem: 'Viatura assumida e enviada ao Discord.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ mensagem: 'Erro ao enviar viatura ao Discord.' });
+  }
+});
