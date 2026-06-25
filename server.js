@@ -21,6 +21,7 @@ app.use(express.json());
 
 const enviosFormulario = new Map();
 const registrosPrisao = [];
+const registrosGerais = [];
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
@@ -315,28 +316,9 @@ app.post('/formulario', async (req, res) => {
 });
 
 
-// LISTAR REGISTROS DE PRISÃO
+// LISTAR REGISTROS DE PRISÃO - PÚBLICO
 app.get('/prisoes', (req, res) => {
-  const session = getSession(req);
-
-  if (!session) {
-    return res.status(401).json({
-      sucesso: false,
-      mensagem: 'Você precisa fazer login para acessar os registros de prisão.'
-    });
-  }
-
-  if (!session.hasRole) {
-    return res.status(403).json({
-      sucesso: false,
-      mensagem: 'Você não tem permissão para acessar os registros de prisão.'
-    });
-  }
-
-  return res.json({
-    sucesso: true,
-    registros: registrosPrisao
-  });
+  return res.json({ sucesso: true, registros: registrosPrisao });
 });
 
 // REGISTRAR PRISÃO
@@ -400,6 +382,17 @@ app.post('/prisoes', async (req, res) => {
 
     registrosPrisao.unshift(registro);
 
+    registrosGerais.unshift({
+      id: registrosGerais.length + 1,
+      tipo: 'prisao',
+      titulo: `Prisão registrada - ${registro.nomePreso}`,
+      descricao: `${registro.crime} • ${registro.local}`,
+      detalhes: registro,
+      autor: responsavel,
+      autorId: session.user.id,
+      data: registro.data
+    });
+
     const canal = await client.channels.fetch(PRISAO_CHANNEL_ID);
 
     if (canal) {
@@ -440,38 +433,72 @@ app.post('/prisoes', async (req, res) => {
 });
 
 
-const PORT = process.env.PORT || 3000;
 
-client.login(process.env.DISCORD_TOKEN);
-
-app.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
+// REGISTROS GERAIS - PÚBLICO
+app.get('/registros', (req, res) => {
+  return res.json({ sucesso: true, registros: registrosGerais });
 });
+
+// CRIAR REGISTRO GERAL - RESTRITO AO CARGO
+app.post('/registros', (req, res) => {
+  const session = getSession(req);
+  if (!session) return res.status(401).json({ sucesso: false, mensagem: 'Faça login.' });
+  if (!session.inServer || !session.hasRole) return res.status(403).json({ sucesso: false, mensagem: 'Sem permissão.' });
+
+  const { tipo, titulo, descricao, detalhes } = req.body;
+  if (!tipo || !titulo) return res.status(400).json({ sucesso: false, mensagem: 'Tipo e título são obrigatórios.' });
+
+  const autor = session.user.global_name || session.user.username || 'Usuário desconhecido';
+  const registro = {
+    id: registrosGerais.length + 1,
+    tipo: String(tipo),
+    titulo: String(titulo),
+    descricao: descricao ? String(descricao) : '',
+    detalhes: detalhes || {},
+    autor,
+    autorId: session.user.id,
+    data: new Date().toISOString()
+  };
+
+  registrosGerais.unshift(registro);
+  return res.json({ sucesso: true, mensagem: 'Registro criado.', registro });
+});
+
+// ASSUMIR VIATURA - RESTRITO AO CARGO + REGISTRO PÚBLICO + DISCORD
 app.post('/viaturas/assumir', async (req, res) => {
   try {
-    const canal = await client.channels.fetch(process.env.VIATURA_CHANNEL_ID);
+    const session = getSession(req);
+    if (!session) return res.status(401).json({ sucesso: false, mensagem: 'Faça login.' });
+    if (!session.inServer || !session.hasRole) return res.status(403).json({ sucesso: false, mensagem: 'Sem permissão.' });
 
-    const {
-      tipo,
-      prefixo,
-      viatura,
-      armas,
-      pessoa1,
-      pessoa2,
-      pessoa3,
-      pessoa4,
-      radio,
-      modulador,
-      area
-    } = req.body;
+    const { tipo, prefixo, viatura, armas, pessoa1, pessoa2, pessoa3, pessoa4, radio, modulador, area } = req.body;
+    if (!tipo || !prefixo || !viatura || !pessoa1 || !pessoa2 || !radio || !modulador) {
+      return res.status(400).json({ sucesso: false, mensagem: 'Preencha tipo, prefixo, viatura, encarregado, motorista, rádio e modulador.' });
+    }
 
+    const autor = session.user.global_name || session.user.username || 'Usuário desconhecido';
+    const dataISO = new Date().toISOString();
     const agora = new Date().toLocaleString('pt-BR');
 
-    await canal.send(`
-🚔 **VIATURA ASSUMIDA**
+    const registro = {
+      id: registrosGerais.length + 1,
+      tipo: 'viatura_assumida',
+      titulo: `${tipo} assumiu ${prefixo}`,
+      descricao: `${viatura} • Rádio ${radio} • Modulação: ${modulador}`,
+      detalhes: { tipo, prefixo, viatura, armas: armas || 'Não informado', pessoa1, pessoa2, pessoa3: pessoa3 || 'Não informado', pessoa4: pessoa4 || 'Não informado', radio, modulador, area: area || 'Não se aplica' },
+      autor,
+      autorId: session.user.id,
+      data: dataISO
+    };
+
+    registrosGerais.unshift(registro);
+
+    if (process.env.VIATURA_CHANNEL_ID) {
+      const canal = await client.channels.fetch(process.env.VIATURA_CHANNEL_ID).catch(() => null);
+      if (canal) {
+        await canal.send(`🚔 **VIATURA ASSUMIDA**
 
 📅 **Data/Hora:** ${agora}
-
 👮 **Tipo:** ${tipo}
 🚓 **Prefixo:** ${prefixo}
 🚗 **Viatura:** ${viatura}
@@ -486,12 +513,70 @@ app.post('/viaturas/assumir', async (req, res) => {
 🔫 **Armas utilizadas:** ${armas || 'Não informado'}
 📍 **Área:** ${area || 'Não se aplica'}
 
-✅ **Status:** Em patrulhamento
-    `);
+👤 **Assumido por:** ${autor} (${session.user.id})
+✅ **Status:** Em patrulhamento`);
+      }
+    }
 
-    res.json({ mensagem: 'Viatura assumida e enviada ao Discord.' });
+    return res.json({ sucesso: true, mensagem: 'Viatura assumida, registrada no site e enviada ao Discord.', registro });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ mensagem: 'Erro ao enviar viatura ao Discord.' });
+    console.error('Erro ao assumir viatura:', err);
+    return res.status(500).json({ sucesso: false, mensagem: 'Erro ao assumir viatura.' });
   }
+});
+
+// RECOLHER VIATURA - RESTRITO AO CARGO + REGISTRO PÚBLICO + DISCORD
+app.post('/viaturas/recolher', async (req, res) => {
+  try {
+    const session = getSession(req);
+    if (!session) return res.status(401).json({ sucesso: false, mensagem: 'Faça login.' });
+    if (!session.inServer || !session.hasRole) return res.status(403).json({ sucesso: false, mensagem: 'Sem permissão.' });
+
+    const { prefixo, motivo } = req.body;
+    if (!prefixo) return res.status(400).json({ sucesso: false, mensagem: 'Informe o prefixo da viatura.' });
+
+    const autor = session.user.global_name || session.user.username || 'Usuário desconhecido';
+    const dataISO = new Date().toISOString();
+    const agora = new Date().toLocaleString('pt-BR');
+
+    const registro = {
+      id: registrosGerais.length + 1,
+      tipo: 'viatura_recolhida',
+      titulo: `Viatura recolhida - ${prefixo}`,
+      descricao: motivo ? String(motivo) : 'Viatura retirada da rua.',
+      detalhes: { prefixo, motivo: motivo || 'Viatura retirada da rua.' },
+      autor,
+      autorId: session.user.id,
+      data: dataISO
+    };
+
+    registrosGerais.unshift(registro);
+
+    if (process.env.VIATURA_CHANNEL_ID) {
+      const canal = await client.channels.fetch(process.env.VIATURA_CHANNEL_ID).catch(() => null);
+      if (canal) {
+        await canal.send(`🟥 **VIATURA RECOLHIDA**
+
+📅 **Data/Hora:** ${agora}
+🚓 **Prefixo:** ${prefixo}
+📝 **Motivo:** ${motivo || 'Viatura retirada da rua.'}
+
+👤 **Recolhida por:** ${autor} (${session.user.id})
+🔴 **Status:** Fora de serviço`);
+      }
+    }
+
+    return res.json({ sucesso: true, mensagem: 'Viatura recolhida e registrada no site.', registro });
+  } catch (err) {
+    console.error('Erro ao recolher viatura:', err);
+    return res.status(500).json({ sucesso: false, mensagem: 'Erro ao recolher viatura.' });
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+
+client.login(process.env.DISCORD_TOKEN);
+
+app.listen(PORT, () => {
+  console.log(`Servidor rodando na porta ${PORT}`);
 });
